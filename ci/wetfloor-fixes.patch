@@ -1,0 +1,277 @@
+--- a/src/main/java/ru/amethyst/features/WetFloor.java
++++ b/src/main/java/ru/amethyst/features/WetFloor.java
+@@ -142,7 +142,7 @@
+             // Surface.x). Кривая приподнята: при strength 1.0 старый
+             // маппинг давал френельным тонким углам почти 0 — слой
+             // «есть, но не виден». Теперь даже 0.4 заметен.
+-            float reflectivity = (float) Anim.clamp(0.3 + 0.7 * strength, 0.0, 1.0);
++            float reflectivity = (float) Anim.clamp(0.48 + 0.52 * strength, 0.0, 1.0);
+ 
+             long now = System.nanoTime();
+             if (lastNano != 0L && now > lastNano) {
+@@ -240,7 +240,7 @@
+             // v1.9.8.1: капли-«линзы» — САМАЯ отдельная секция настроек:
+             // свой тумблер wetScreenDrops + свой слайдер прозрачности;
+             // размер — свой слайдер, масштабирует сетку линз в шейдере.
+-            float dropsAmt = cfg.wetScreenDrops
++            float dropsAmt = dropsEnabled(cfg)
+                     ? (float) Anim.clamp(cfg.wetScreenDropsAlpha, 0.0, 1.0)
+                     : 0.0f;
+             float dropsScale = (float) Anim.clamp(cfg.wetScreenDropsScale, 0.25, 2.5);
+@@ -259,28 +259,31 @@
+             bb.putFloat((float) camPos.y);
+             bb.putFloat((float) camPos.z);
+             bb.putFloat(0.0f);
+-            // WF2: MaxDistance(32), splashes, SplashRange(15), 0
+-            bb.putFloat(32.0f);
++            // WF2: MaxDistance(48), splashes, SplashRange(15), 0
++            bb.putFloat(48.0f);
+             bb.putFloat(splashAmt);
+             bb.putFloat(15.0f);
+             bb.putFloat(0.0f);
+-            // WF3: Steps(32), HitThickness(0.55), UpOnly (0/1), 0
+-            bb.putFloat(32.0f);
+-            bb.putFloat(0.55f);
++            // WF3: Steps(48), HitThickness(0.85), UpOnly (0/1), 0
++            bb.putFloat(48.0f);
++            bb.putFloat(0.85f);
+             bb.putFloat(upOnly);
+             bb.putFloat(0.0f);
+-            // WF4: rainAmt, rainScale, dropsAlpha (линзы, screen.fsh),
+-            // dropsScale — размер линз (масштаб сетки в шейдере)
++            // ВАЖНО: порядок std140 должен совпадать с GLSL-блоком:
++            // сначала WF0..WF3 (0..63), затем ViewProj (64..127),
++            // InvViewProj (128..191) и ТОЛЬКО ПОТОМ WF4 (192..207).
++            // Раньше WF4 записывался перед матрицами и сдвигал обе
++            // матрицы на 16 байт — экранная трассировка отражений ломалась.
++            putMatrix(bb, vp);
++            putMatrix(bb, ivp);
++            // WF4: rainAmt, rainScale, dropsAlpha, dropsScale
+             bb.putFloat(rainAmt);
+             bb.putFloat(rainScale);
+             bb.putFloat(dropsAmt);
+             bb.putFloat(dropsScale);
+-            // mat4 ViewProj: 64..127, mat4 InvViewProj: 128..191 (column-major)
+-            putMatrix(bb, vp);
+-            putMatrix(bb, ivp);
+             bb.flip();
+ 
+-            // создаём fresh-UBO каждый кадр (192 байта — ничтожная цена;
++            // создаём fresh-UBO каждый кадр (208 байт — ничтожная цена;
+             // так не приходится думать о согласовании writeToBuffer/pass)
+             GpuBuffer ubo = device.createBuffer(
+                     () -> "Amethyst WetFloor UBO", GpuBuffer.USAGE_UNIFORM, bb);
+@@ -310,6 +313,19 @@
+         }
+     }
+ 
++    /**
++     * Совместимость с конфигами, где тумблер капель уже присутствует.
++     * В старых конфигурационных классах поля нет — тогда капли остаются
++     * включёнными, как в предыдущих версиях мода.
++     */
++    private static boolean dropsEnabled(AmethystConfig cfg) {
++        try {
++            return cfg.getClass().getField("wetScreenDrops").getBoolean(cfg);
++        } catch (Throwable ignored) {
++            return true;
++        }
++    }
++
+     /** GL-порядок mat4: колонки, внутри колонки — сверху вниз (JOML mXY = колонка X, строка Y). */
+     private static void putMatrix(ByteBuffer bb, Matrix4f m) {
+         bb.putFloat(m.m00());
+--- a/src/main/resources/assets/amethyst/shaders/wet/wet_floor.fsh
++++ b/src/main/resources/assets/amethyst/shaders/wet/wet_floor.fsh
+@@ -37,7 +37,7 @@
+ //
+ //   • реконструкция мира: worldFromDepth(uv, depth) через InvViewProj;
+ //   • нормаль: faceNormal по соседним глубинам (ddx/ddy, ближайшая
+-//     сторона как у floor.fsh) с отсечкой силуэтов SILHOUETTE_LIMIT 0.55;
++//     сторона как у floor.fsh) с отсечкой силуэтов SILHOUETTE_LIMIT 0.72;
+ //   • маска: только «вверх»-поверхности smoothstep(0.5, 0.82, n.y)
+ //     (UpOnly=1) — пол, крыши, верхушки блоков; стены/потолок отсечены;
+ //   • рябь: value-noise с бегущим потоком (flow = xz*0.85 + t*(0.31,0.19)),
+@@ -56,9 +56,9 @@
+ //   WF1: xyz=camPos w=0
+ //   WF2: x=MaxDistance y=splashAmt z=SplashRange w=0
+ //   WF3: x=Steps y=HitThickness z=UpOnly (0/1, чекбокс) w=0
+-//   WF4: x=rainAmt y=rainScale z=dropsAlpha w=dropsScale (192..207)
+ //   mat4 ViewProj   (байты 64..127)
+ //   mat4 InvViewProj(байты 128..191)
++//   WF4: x=rainAmt y=rainScale z=dropsAlpha w=dropsScale (192..207)
+ //
+ // Sampler0 — копия цвета кадра (linear), Sampler1 — копия глубины (nearest).
+ 
+@@ -99,12 +99,12 @@
+ #define Tint          vec3(0.58, 0.66, 0.80)
+ #define RainTint      vec3(0.56, 0.64, 0.80)
+ 
+-const int MAX_STEPS = 48;
+-const int REFINE_STEPS = 4;
+-const float STEP_GROWTH = 0.12;
+-const float SURFACE_BIAS = 0.035;
+-const float EDGE_FADE = 0.12;
+-const float SILHOUETTE_LIMIT = 0.55;
++const int MAX_STEPS = 64;
++const int REFINE_STEPS = 5;
++const float STEP_GROWTH = 0.09;
++const float SURFACE_BIAS = 0.025;
++const float EDGE_FADE = 0.10;
++const float SILHOUETTE_LIMIT = 0.72;
+ const float SPEC_POWER = 190.0;
+ 
+ // мировой дождь (raymarch)
+@@ -233,7 +233,11 @@
+ 
+         // v1.9.8: слайдер РАЗМЕРА капель = масштаб СЕТКИ (клетка крупнее
+         // = капля крупнее); DropScale пишется Java (0.5..2.5).
+-        vec2 grid = vec2(vUV.x * aspect, vUV.y) * (DROP_CELLS / max(DropScale, 0.05));
++        // Сетка плотнее, чем в исходной версии: капли примерно вдвое
++        // меньше при прежнем положении ползунка. Сам ползунок сохраняет
++        // привычную логику: большее значение = крупнее капля.
++        vec2 grid = vec2(vUV.x * aspect, vUV.y)
++                * (DROP_CELLS / max(DropScale * 0.62, 0.05));
+         vec2 dcell = floor(grid);
+         vec2 dlocal = fract(grid);
+ 
+@@ -242,7 +246,7 @@
+         float life = fract(Time * fall + dseed * 7.13);
+ 
+         vec2 dcenter = vec2(0.15 + 0.7 * hash12(dcell + 13.7), 1.0 - life);
+-        float dradius = 0.12 + 0.13 * hash12(dcell + 4.21);
++        float dradius = 0.09 + 0.105 * hash12(dcell + 4.21);
+ 
+         vec2 ddelta = (dlocal - dcenter) / dradius;
+         float ddist = length(ddelta);
+@@ -286,7 +290,10 @@
+     // снизу/сверху. В луже: рябь сильнее, поверхность темнее (мокрая).
+     float pn = rippleNoise(world.xz * 0.42 + vec2(Time * 0.021, -Time * 0.017));
+     pn = 0.62 * pn + 0.38 * rippleNoise(world.xz * 1.15 - vec2(Time * 0.013, Time * 0.009));
+-    float puddle = smoothstep(0.52, 0.74, pn);
++    float puddle = smoothstep(0.36, 0.70, pn);
++    // Даже между отдельными лужами покрытие остаётся влажным: поверхность
++    // не должна выглядеть как редкие зеркальные пятна на сухом блоке.
++    float wetCoverage = mix(0.82, 1.0, puddle);
+ 
+     if (Ripple > 0.001 && normal.y > 0.1) {
+         vec2 flow = world.xz * 0.85 + vec2(Time * 0.31, Time * 0.19);
+@@ -302,11 +309,13 @@
+     soaked = mix(src.rgb, soaked * (1.0 - 0.30 * puddle * mask), mask);
+ 
+     vec3 reflected = reflect(incident, normal);
+-    // rough reflections: лёгкий хэш-джиттер направления — живой «мокрый»
+-    // блеск вместо идеального зеркала (направление расфокусировано на ~3°).
+-    vec2 rjit = fract(vec2(hash12(gl_FragCoord.xy + Time * 43.0),
+-            hash12(gl_FragCoord.yx + 19.0 + Time * 71.0))) - 0.5;
+-    reflected = normalize(reflected + vec3(rjit.x, rjit.y * 0.6, rjit.x) * 0.05);
++    // Rough Reflections: небольшой стабильный разброс луча. Он зависит
++    // от пикселя и структуры воды, но не дрожит каждый кадр.
++    vec2 rjit = vec2(hash12(gl_FragCoord.xy + vec2(17.13, 4.7)),
++            hash12(gl_FragCoord.yx + vec2(9.1, 41.7))) - 0.5;
++    float rayRoughness = mix(0.024, 0.008, puddle);
++    reflected = normalize(reflected
++            + vec3(rjit.x, rjit.y * 0.6, rjit.x) * rayRoughness);
+     vec3 origin = view + normal * SURFACE_BIAS;
+ 
+     int steps = clamp(int(Steps), 8, MAX_STEPS);
+@@ -362,7 +371,19 @@
+     //     КАДРА по отражённому лучу: до точки ×900 проецируем на экран
+     vec3 reflection;
+     if (hit > 0.0) {
+-        reflection = texture(Sampler0, hitUv).rgb;
++        // 5-tap rough reflection: лужи почти зеркальные, более шероховатые
++        // участки мягко размывают детали без мерцающих случайных лучей.
++        vec2 texel = 1.0 / vec2(textureSize(Sampler0, 0));
++        vec2 blur = texel * mix(2.25, 0.55, puddle);
++        vec2 uvA = clamp(hitUv + vec2(-blur.x, -blur.y), vec2(0.001), vec2(0.999));
++        vec2 uvB = clamp(hitUv + vec2( blur.x, -blur.y), vec2(0.001), vec2(0.999));
++        vec2 uvC = clamp(hitUv + vec2(-blur.x,  blur.y), vec2(0.001), vec2(0.999));
++        vec2 uvD = clamp(hitUv + vec2( blur.x,  blur.y), vec2(0.001), vec2(0.999));
++        reflection = texture(Sampler0, hitUv).rgb * 0.40;
++        reflection += texture(Sampler0, uvA).rgb * 0.15;
++        reflection += texture(Sampler0, uvB).rgb * 0.15;
++        reflection += texture(Sampler0, uvC).rgb * 0.15;
++        reflection += texture(Sampler0, uvD).rgb * 0.15;
+     } else {
+         vec3 farPoint = view + reflected * 900.0;
+         vec4 skClip = ViewProj * vec4(farPoint, 1.0);
+@@ -379,12 +400,11 @@
+     }
+ 
+     float fresnel = 0.02 + 0.98 * pow(1.0 - clamp(dot(normal, -incident), 0.0, 1.0), 5.0);
+-    float amount = clamp(Reflectivity * (0.12 + 0.88 * fresnel), 0.0, 1.0) * mask;
+-    // v1.9.8.1: в ЛУЖЕ — почти зеркало независимо от френеля (тонкий
+-    // слой воды). Без этого на типичных углах френель давил отражение
+-    // до ~0.12–0.25 → «мокрого пола не видно» (лог: strength=1.0, слой
+-    // живой). Отражение теперь гарантированно видимое.
+-    amount = max(amount, puddle * mask * clamp(Reflectivity * 1.25, 0.0, 1.0) * 0.9);
++    // Вода остаётся заметно отражающей даже при взгляде почти сверху.
++    // Френель усиливает отражение под острым углом, а wetCoverage не
++    // позволяет шуму луж полностью обнулить отражения между пятнами.
++    float amount = clamp(Reflectivity * mix(0.72, 1.0, fresnel)
++            * wetCoverage, 0.0, 0.96) * mask;
+ 
+     vec3 halfway = normalize(SunDir - incident);
+     float specular = pow(max(dot(normal, halfway), 0.0), SPEC_POWER) * Gloss * mask * max(SunDir.y, 0.0);
+--- a/src/main/resources/assets/amethyst/shaders/xray/block_overlay.fsh
++++ b/src/main/resources/assets/amethyst/shaders/xray/block_overlay.fsh
+@@ -60,6 +60,11 @@
+ #define BOXMAX     BO2.xyz
+ #define USERCOL    BO3.xyz
+ 
++// Дополнительное перекрытие объёма за границей блока. Малый запас
++// помогает лучам, попадающим точно в рёбра/вершины AABB, не терять
++// покрытие из-за субпиксельной точности и округления глубины.
++const float AABB_EDGE_PAD = 0.018;
++
+ // ======================================================================
+ // Хэши и шумы (значения-шумы — как у Wet Floor / Mytheria floor.fsh)
+ // ======================================================================
+@@ -177,14 +182,23 @@
+     if (abs(rd.z) < 1.0e-6) rd.z = 1.0e-6 * (rd.z < 0.0 ? -1.0 : 1.0);
+ 
+     // --- slab-test с AABB (блок уже задан ОТНОСИТЕЛЬНО камеры) ---------
+-    vec3 t1 = (BOXMIN - origin) / rd;
+-    vec3 t2 = (BOXMAX - origin) / rd;
++    // Расширяем объём дополнительно к Java EPS: лучи, проходящие точно
++    // через угол, больше не образуют тонких прозрачных щелей.
++    vec3 boxMin = BOXMIN - vec3(AABB_EDGE_PAD);
++    vec3 boxMax = BOXMAX + vec3(AABB_EDGE_PAD);
++    vec3 t1 = (boxMin - origin) / rd;
++    vec3 t2 = (boxMax - origin) / rd;
+     vec3 tsmix = min(t1, t2);
+     vec3 tlrg  = max(t1, t2);
+     float tNear = max(max(tsmix.x, tsmix.y), tsmix.z);
+     float tFar  = min(min(tlrg.x, tlrg.y), tlrg.z);
+ 
+-    if (!(tFar > tNear) || !(tFar > 0.0)) { fragColor = vec4(0.0); return; }
++    // Допуск на касание: расширенный AABB считается попаданием даже
++    // при практически равных tNear/tFar (диагональ через саму вершину).
++    if (tFar + 1.0e-4 < tNear || !(tFar > 0.0)) {
++        fragColor = vec4(0.0);
++        return;
++    }
+ 
+     bool inside = tNear <= 0.0;        // камера внутри бокса
+     float tSurf = max(tNear, 0.0);
+@@ -215,8 +229,8 @@
+     n.z = (axis == 2) ? sZ : 0.0;
+ 
+     // --- локальные координаты на грани ---------------------------------
+-    vec3 fsize = max(BOXMAX - BOXMIN, vec3(1.0e-5));
+-    vec3 ffrac = clamp((surf - BOXMIN) / fsize, 0.0, 1.0);
++    vec3 fsize = max(boxMax - boxMin, vec3(1.0e-5));
++    vec3 ffrac = clamp((surf - boxMin) / fsize, 0.0, 1.0);
+     vec2 duv = (axis == 0) ? vec2(ffrac.z, ffrac.y)
+              : (axis == 1) ? vec2(ffrac.x, ffrac.z)
+                            : vec2(ffrac.x, ffrac.y);
+@@ -225,8 +239,8 @@
+     // v1.9.8.1: ЗАЗОРЫ В УГЛАХ УБРАНЫ. Было: мягкий край smoothstep
+     // (0..3%) — на углах обе локальные оси обнулялись → прозрачное
+     // пятно, просвечивал настоящий блок. Полное покрытие: edge = 1.0
+-    // вксюду, где slab-test попал в бокс (бокс расширен на EPS 0.004 —
+-    // против z-fighting), так что «сглаженный стоп-край не нужен».
++    // везде, где slab-test попал в бокс; AABB дополнительно расширен
++    // на AABB_EDGE_PAD, чтобы закрыть субпиксельные щели на рёбрах.
+     float edge = 1.0;
