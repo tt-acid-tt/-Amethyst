@@ -6,7 +6,6 @@ on:
     paths:
       - "amethyst-wetfloor-fixed.jar"
       - "Amethyst-WetFloor-Source.zip"
-      - ".github/workflows/publish-downloads.yml"
 
 permissions:
   contents: read
