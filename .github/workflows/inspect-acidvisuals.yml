@@ -1,0 +1,42 @@
+name: Extract AcidVisuals WetFloor reference
+
+on:
+  push:
+    paths:
+      - "AcidVisuals-1.21.4.jar"
+      - ".github/workflows/inspect-acidvisuals.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate and extract reference JAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "AcidVisuals-1.21.4.jar"
+          mkdir -p acidvisuals-reference
+          cp "AcidVisuals-1.21.4.jar" acidvisuals-reference/
+          cd acidvisuals-reference
+          jar tf AcidVisuals-1.21.4.jar | sort > JAR-FILE-LIST.txt
+          mkdir unpacked
+          cd unpacked
+          jar xf ../AcidVisuals-1.21.4.jar
+          find . -type f -printf '%p\t%s bytes\n' | sort > ../EXTRACTED-FILE-LIST.txt
+          echo "WetFloor related classes and assets:"
+          grep -Ei 'wet|floor|rain|drop|reflection|puddle|ripple|shader|pipeline' ../JAR-FILE-LIST.txt || true
+          echo "Mod metadata:"
+          cat fabric.mod.json
+          echo "Extracted files:"
+          wc -l ../EXTRACTED-FILE-LIST.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AcidVisuals-1.21.4-Extracted
+          path: acidvisuals-reference/
+          if-no-files-found: error
+          retention-days: 14
