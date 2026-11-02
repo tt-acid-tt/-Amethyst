@@ -1,23 +1,24 @@
-name: Inspect uploaded shaders
+name: Inspect Amethyst reference archives
 
 on:
   push:
     paths:
       - ".github/workflows/inspect-shaders.yml"
       - "shaders.rar"
+      - "jirzeria.rar"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  extract:
+  extract-shaders:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract shader archive (retain valid entries)
+      - name: Extract shader archive
         shell: bash
         run: |
           set -uo pipefail
@@ -31,11 +32,8 @@ jobs:
           find extracted-shaders -type f -print | sort > extracted-shaders/FILE-LIST.txt
           test -s "extracted-shaders/shaders/core/wetfloor/floor.fsh"
           test -s "extracted-shaders/shaders/core/wetfloor/screen.fsh"
-          echo "Extracted file count:"
+          echo "Extracted shader count:"
           find extracted-shaders -type f | wc -l
-          echo "Wet-floor shader files:"
-          find extracted-shaders/shaders/core/wetfloor -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
-          echo "Checksum failures are documented above; required floor/screen GLSL were extracted."
 
       - name: Upload extracted shader archive
         uses: actions/upload-artifact@v4
@@ -46,3 +44,41 @@ jobs:
             extraction.log
           if-no-files-found: error
           retention-days: 7
+
+  extract-jirzeria-reference:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install RAR extractor
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unar
+
+      - name: Extract full Jirzeria reference
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p reference-extracted
+          result=0
+          unar -f -o reference-extracted jirzeria.rar > jirzeria-extraction.log 2>&1 || result=$?
+          cat jirzeria-extraction.log
+          echo "unar exit code: $result"
+          find reference-extracted -type f -printf '%p\t%s bytes\n' | sort | tee reference-extracted/FILE-LIST.txt
+          echo "File count:"
+          find reference-extracted -type f | wc -l
+          echo "WetFloor-related source and shader references:"
+          find reference-extracted -type f | grep -Ei 'wet.?floor|rain|drop|reflection|screen|ripple|config' | sort || true
+          test -s jirzeria-extraction.log
+          test "$(find reference-extracted -type f | wc -l)" -gt 0
+
+      - name: Upload extracted Jirzeria reference
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jirzeria-Reference-Extracted
+          path: |
+            reference-extracted/
+            jirzeria-extraction.log
+          if-no-files-found: error
+          retention-days: 14
