@@ -1,20 +1,27 @@
-# Amethyst — GitHub Actions build
+# Amethyst — сборки GitHub Actions
 
-The **Build Amethyst** workflow compiles the updated `AmethystConfig` and `WetFloor` classes, remaps `WetFloor` from Yarn to Intermediary, packages the mod JAR, validates the JAR/shaders, and creates a source ZIP.
+Репозиторий собирает мод Amethyst для Minecraft 1.21.11 / Fabric и публикует готовый JAR и ZIP исходников в артефактах GitHub Actions.
 
-## One-time build input upload
+## Однократная загрузка исходного архива
 
-The repository needs the binary input bundle `Amethyst-CI-Input.zip` in its root. Upload that ZIP as a single file using **Add file → Upload files** and commit it. It contains the Minecraft 1.21.11 Yarn/Fabric compile cache, remapper, staged mod classes, resources, and sources required by the incremental build. Do not extract it before uploading.
+1. Открой вкладку **Code** этого репозитория.
+2. Нажми **Add file → Upload files**.
+3. Добавь исходный файл из этого проекта, переименовав его в **Amethyst-Original-Input.rar**.
+4. Нажми **Commit changes**.
 
-After that commit, Actions starts automatically.
+Архив должен содержать папку верхнего уровня `amethyst/` с каталогами `src/` и `build/`. Не загружай распакованную папку `paste/` отдельно: это старая посторонняя копия проекта.
 
-## Download
+После коммита GitHub Actions автоматически запустит **Build Amethyst**. Workflow применит исправления WetFloor и Block Overlay, скомпилирует изменённые Java-классы, выполнит Yarn → Intermediary remap, соберёт JAR и проверит его содержимое, связку `wetScreenDrops` и копирование GLSL-файлов.
 
-Open **Actions → Build Amethyst → latest successful run → Artifacts** and download:
+## Где скачивать
 
-- `Amethyst-WetFloor-JAR` — ready-to-install Fabric JAR.
-- `Amethyst-WetFloor-Source` — source archive.
+Открой **Actions → Build Amethyst → последний успешный запуск → Artifacts**:
 
-Artifacts are kept for 30 days. You can also start a run manually with **Run workflow** after the input ZIP is present.
+- **Amethyst-WetFloor-JAR** — готовый мод `.jar`.
+- **Amethyst-WetFloor-Source** — архив исходников `.zip`.
 
-The compile-only stubs under `ci/stubs` are not packaged into the mod JAR; they only let the incremental compiler resolve APIs that are supplied by Minecraft/Fabric at runtime.
+Артефакты хранятся 30 дней. Ручной запуск доступен через **Run workflow** после первой загрузки RAR.
+
+## Ограничение проверки
+
+Workflow проверяет компиляцию, remap, структуру JAR, необходимые классы и точное совпадение шейдеров с исходниками. Он не запускает Minecraft с реальной видеокартой, поэтому финальное визуальное поведение в игре нужно проверить отдельно.
