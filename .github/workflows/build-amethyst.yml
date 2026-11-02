@@ -5,8 +5,6 @@ on:
   push:
     paths:
       - "Amethyst-Original-Input.rar"
-      - "ci/build.sh"
-      - "ci/wetfloor-fixes.patch"
 
 permissions:
   contents: read
