@@ -1,0 +1,43 @@
+name: Build Amethyst
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "Amethyst-CI-Input.zip"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Compile and package Amethyst
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Build mod and source archive
+        run: bash ci/build.sh
+
+      - name: Upload JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: Amethyst-WetFloor-JAR
+          path: dist/amethyst-wetfloor-fixed.jar
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload full sources
+        uses: actions/upload-artifact@v4
+        with:
+          name: Amethyst-WetFloor-Source
+          path: dist/Amethyst-WetFloor-Source.zip
+          if-no-files-found: error
+          retention-days: 30
