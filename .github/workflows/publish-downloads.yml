@@ -1,0 +1,51 @@
+name: Amethyst downloads
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "amethyst-wetfloor-fixed.jar"
+      - "Amethyst-WetFloor-Source.zip"
+      - ".github/workflows/publish-downloads.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Prepare downloadable files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "amethyst-wetfloor-fixed.jar" || {
+            echo "::error::Missing amethyst-wetfloor-fixed.jar in the repository root."
+            exit 1
+          }
+          test -s "Amethyst-WetFloor-Source.zip" || {
+            echo "::error::Missing Amethyst-WetFloor-Source.zip in the repository root."
+            exit 1
+          }
+          file "amethyst-wetfloor-fixed.jar"
+          file "Amethyst-WetFloor-Source.zip"
+
+      - name: Upload mod JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: Amethyst-WetFloor-JAR
+          path: amethyst-wetfloor-fixed.jar
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: Amethyst-WetFloor-Source
+          path: Amethyst-WetFloor-Source.zip
+          if-no-files-found: error
+          retention-days: 30
