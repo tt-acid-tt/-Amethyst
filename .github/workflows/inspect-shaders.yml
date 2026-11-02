@@ -6,6 +6,7 @@ on:
       - ".github/workflows/inspect-shaders.yml"
       - "shaders.rar"
       - "jirzeria.rar"
+      - "WetWorld (1).zip"
   workflow_dispatch:
 
 permissions:
@@ -15,9 +16,7 @@ jobs:
   extract-shaders:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Extract shader archive
         shell: bash
         run: |
@@ -32,11 +31,7 @@ jobs:
           find extracted-shaders -type f -print | sort > extracted-shaders/FILE-LIST.txt
           test -s "extracted-shaders/shaders/core/wetfloor/floor.fsh"
           test -s "extracted-shaders/shaders/core/wetfloor/screen.fsh"
-          echo "Extracted shader count:"
-          find extracted-shaders -type f | wc -l
-
-      - name: Upload extracted shader archive
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: Extracted-Uploaded-Shaders
           path: |
@@ -48,14 +43,11 @@ jobs:
   extract-jirzeria-reference:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Install RAR extractor
         run: |
           sudo apt-get update
           sudo apt-get install -y unar
-
       - name: Extract full Jirzeria reference
         shell: bash
         run: |
@@ -72,13 +64,30 @@ jobs:
           find reference-extracted -type f | grep -Ei 'wet.?floor|rain|drop|reflection|screen|ripple|config' | sort || true
           test -s jirzeria-extraction.log
           test "$(find reference-extracted -type f | wc -l)" -gt 0
-
-      - name: Upload extracted Jirzeria reference
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: Jirzeria-Reference-Extracted
           path: |
             reference-extracted/
             jirzeria-extraction.log
+          if-no-files-found: error
+          retention-days: 14
+
+  extract-wetworld-archive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract WetWorld ZIP
+        run: |
+          set -euo pipefail
+          mkdir -p wetworld-extracted
+          unzip -q "WetWorld (1).zip" -d wetworld-extracted
+          find wetworld-extracted -type f -printf '%p\t%s bytes\n' | sort | tee wetworld-extracted/FILE-LIST.txt
+          echo "WetWorld source hits:"
+          grep -RIniE 'wet.?floor|rain|drop|reflection|puddle|ripple|screen' wetworld-extracted --exclude='*.png' --exclude='*.jpg' || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WetWorld-Reference-Extracted
+          path: wetworld-extracted/
           if-no-files-found: error
           retention-days: 14
