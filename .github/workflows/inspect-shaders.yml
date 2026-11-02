@@ -1,0 +1,41 @@
+name: Inspect uploaded shaders
+
+on:
+  push:
+    paths:
+      - ".github/workflows/inspect-shaders.yml"
+      - "shaders.rar"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract shader archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y unar
+          mkdir -p extracted-shaders
+          unar -f -o extracted-shaders shaders.rar
+          find extracted-shaders -type f -print | sort > extracted-shaders/FILE-LIST.txt
+          test -s extracted-shaders/FILE-LIST.txt
+          echo "Extracted file count:"
+          find extracted-shaders -type f | wc -l
+          echo "Shader files:"
+          find extracted-shaders -type f \( -iname '*.fsh' -o -iname '*.vsh' -o -iname '*.glsl' -o -iname '*.json' \) -print | sort
+
+      - name: Upload extracted shader archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: Extracted-Uploaded-Shaders
+          path: extracted-shaders/
+          if-no-files-found: error
+          retention-days: 7
