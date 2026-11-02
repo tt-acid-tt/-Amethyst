@@ -24,8 +24,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y unar
           mkdir -p extracted-shaders
-          unar -f -o extracted-shaders shaders.rar > extraction.log 2>&1
-          result=$?
+          result=0
+          unar -f -o extracted-shaders shaders.rar > extraction.log 2>&1 || result=$?
           cat extraction.log
           echo "unar exit code: $result"
           find extracted-shaders -type f -print | sort > extracted-shaders/FILE-LIST.txt
