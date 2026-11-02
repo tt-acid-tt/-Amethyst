@@ -4,7 +4,9 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - "Amethyst-CI-Input.zip"
+      - "Amethyst-Original-Input.rar"
+      - "ci/build.sh"
+      - "ci/wetfloor-fixes.patch"
 
 permissions:
   contents: read
@@ -26,7 +28,7 @@ jobs:
       - name: Build mod and source archive
         run: bash ci/build.sh
 
-      - name: Upload JAR
+      - name: Upload mod JAR
         uses: actions/upload-artifact@v4
         with:
           name: Amethyst-WetFloor-JAR
@@ -34,7 +36,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Upload full sources
+      - name: Upload source archive
         uses: actions/upload-artifact@v4
         with:
           name: Amethyst-WetFloor-Source
